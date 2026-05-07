@@ -23,8 +23,24 @@ mypasswordmypassword
 
 my.conf 是刚才的配置文件，你可以换成其他名字。
 
-连接成功后，程序将会每间隔 15s 测试一次网络连通性。如果无法连接则进行重新登陆。
+连接成功后，程序将会每间隔 15s 向上级路由器发送ipv6心跳包以保持活跃状态，并ping baidu.com 测试一次网络连通性。如果无法连接则进行重新登陆。
 
+---
+
+除上述参数化 *附加配置文件路径* `./my.conf` 的方式，另支持以下2种方法，以实现无参数运行
+
+1. 通过环境变量 `HUST_NETWORK_LOGIN_USERNAME` 与 `HUST_NETWORK_LOGIN_PASSWORD` 来分别配置用户名，密码
+
+2. 将上述 `my.conf` 保存为默认配置文件 `/etc/hust-network-login.conf` 或 `/etc/hust-network-login/config`
+
+运行
+
+```shell
+./hust-network-login
+```
+
+即可
+ 
 ## 编译
 
 编译本地平台只需要使用 `cargo`。
