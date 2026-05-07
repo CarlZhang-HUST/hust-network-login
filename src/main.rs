@@ -2,6 +2,7 @@ mod encrypt;
 use std::fs;
 use std::time::Duration;
 use std::{io, thread};
+use std::process::Command;
 
 fn extract<'a>(text: &'a str, prefix: &'a str, suffix: &'a str) -> io::Result<&'a str> {
     let left = text.find(prefix);
@@ -115,17 +116,17 @@ impl Config {
     pub fn from_env() -> Option<Self> {
         println!("reading configuration from environment variables");
         let username = std::env::var("HUST_NETWORK_LOGIN_USERNAME")
-            .inspect_err(|err| println!("failed to read environment variable: {err}"))
+            .map_err(|err| { println!("failed to read environment variable: {err}"); err })
             .ok();
         let password = std::env::var("HUST_NETWORK_LOGIN_PASSWORD")
-            .inspect_err(|err| println!("failed to read environment variable: {err}"))
+            .map_err(|err| { println!("failed to read environment variable: {err}"); err })
             .ok();
 
         let result = Self::validate_and_assemble(
             username.as_ref().map(String::as_str),
             password.as_ref().map(String::as_str),
         )
-        .inspect_err(|err| println!("invalid configuration: {err}"))
+        .map_err(|err| { println!("invalid configuration: {err}"); err })
         .ok()?;
 
         Some(result)
@@ -135,18 +136,18 @@ impl Config {
         println!("reading configuration from file: {path}");
 
         let raw = fs::read(&path)
-            .inspect_err(|err| println!("failed to read from {path}: {err}"))
+            .map_err(|err| { println!("failed to read from {path}: {err}"); err })
             .ok()?;
 
         let configuration = String::from_utf8(raw)
-            .inspect_err(|err| println!("failed to parse content of {path}: {err}"))
+            .map_err(|err| { println!("failed to parse content of {path}: {err}"); err })
             .ok()?;
 
         let mut lines = configuration.lines();
         let username = lines.next();
         let password = lines.next();
         let result = Self::validate_and_assemble(username, password)
-            .inspect_err(|err| println!("invalid configuration: {err}"))
+            .map_err(|err| { println!("invalid configuration: {err}"); err })
             .ok()?;
 
         Some(result)
@@ -161,11 +162,41 @@ impl Config {
             .skip(1) // skip executable path
             .last()
             .ok_or("at least 1 argument is required")
-            .inspect_err(|err| println!("no configuration file specified: {err}"))
+            .map_err(|err| { println!("no configuration file specified: {err}"); err })
             .ok()?;
 
         Self::from_file(&path)
     }
+}
+
+#[allow(non_snake_case)]
+fn getRouterAddr6() -> Option<String> {
+    let out = Command::new("ip")
+        .args(["-6", "addr"])
+        .output()
+        .or_else(|_| Command::new("ipconfig").output());
+
+    if let Ok(output) = out {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let prefix = "2001:250:4000:";
+        
+        if let Some(idx) = stdout.find(prefix) {
+            let end_idx = stdout[idx..]
+                .find(|c: char| c.is_whitespace() || c == '/' || c == '%')
+                .unwrap_or(stdout[idx..].len());
+            
+            let ip_str = &stdout[idx..idx + end_idx];
+            
+            let segments: Vec<&str> = ip_str.split(':').collect();
+            if segments.len() >= 4 {
+                return Some(format!(
+                    "{}:{}:{}:{}::1",
+                    segments[0], segments[1], segments[2], segments[3]
+                ));
+            }
+        }
+    }
+    None
 }
 
 fn main() {
@@ -178,6 +209,17 @@ fn main() {
     loop {
         match login(&config.username, &config.password) {
             Ok(_) => {
+                if let Some(router_ip) = getRouterAddr6() {
+                    let _ = Command::new("ping6")
+                        .args(["-c", "1", &router_ip])
+                        .output()
+                        .or_else(|_| {
+                            Command::new("ping")
+                                .args(["-6", "-n", "1", &router_ip])
+                                .output()
+                        });
+                }
+                
                 println!("login ok. awaiting...");
                 thread::sleep(Duration::from_secs(15));
             }
